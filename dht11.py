@@ -1,9 +1,16 @@
+
+#!/usr/bin/python
+"""
+First version with dht11 and 20x4 LCD display
+Using original RPi.GPIO and runner must use sudo python to run
+"""
 import smbus
 from time import *
 import pydht
 import time
 import subprocess 
 import os
+import signal
 class i2c_device:
     def __init__(self, addr, port=1):
         self.addr = addr
@@ -158,7 +165,7 @@ def get_dht11():
 
 def init_mylcd():
     mylcd = lcd()
-    mylcd.lcd_display_string("Debug Messages Here".center(20), 2)
+    mylcd.lcd_display_string("Hi Echo & David".center(20), 2)
     mylcd.lcd_display_string("Version 0.5".center(20), 3)   
     return mylcd
 
@@ -167,7 +174,7 @@ def update(mylcd):
     mytemp,myhmd=get_dht11()
     mytimestr=time.strftime("%m-%d  %H:%M  %a")
     mylcd.lcd_display_string(mytimestr.center(20), 1)
-    mylcd.lcd_display_string(("T= %d C   H= %d %%"%(mytemp,myhmd)).center(20), 4)
+    mylcd.lcd_display_string(("T=%dC %.1fF H= %d%%"%(mytemp,mytemp*9.0/5+32,myhmd)).center(20), 4)
     return mytemp,myhmd
 
 def writetolog(writelist,fh=None):
@@ -180,33 +187,9 @@ def writetolog(writelist,fh=None):
     fh.flush()
    
     
-def main():
-    updateintervalsec=30
-    zlogname=r"tlog/tlog_%s.txt"%time.strftime("%y%m%d_%H%M%S")
-    fh=None
-    fh=open(zlogname,'w')
-    # subprocess.call("sudo chown pi ./tlog/*")
-    mylcd=init_mylcd()
-    num_error=0
-    for ct in xrange(int(24*60*60 / updateintervalsec)):
-        t0=time.time()
-        mylcd.lcd_backlighton(0)
-        try:
-            mytemp,myhmd=update(mylcd)
-        except Exception:
-            num_error=num_error+1
-            mytemp,myhmd=-1,-1
-            continue
-        if (-1 <= mytemp <= 50) and (-1 <= myhmd <= 100):
-            writelist=[t0, time.strftime("%y%m%d",time.localtime(t0)),\
-                time.strftime("%H%M%S",time.localtime(t0)),mytemp,myhmd]
-            writetolog(writelist,fh)
-            twait=updateintervalsec-(time.time()-t0)
-            mylcd.lcd_display_string(("%5d/%d    %7.3f"%(ct+1,num_error,twait)).center(20), 3)
-            twait=updateintervalsec-(time.time()-t0)
-            if twait>0: time.sleep(twait)
-    if fh is not None: fh.close()
-    
+def KeyboardInterrupt_sig_hander(signal,frame):
+    global dht_running
+    dht_running=False
 
 def get_log_file_name(tlast,tnew,outdir=r".",fname_prefix=r"dht11-"):
     t_lastdate_num=int(time.strftime("%Y%m%d",time.localtime(tlast)))
@@ -218,30 +201,45 @@ def get_log_file_name(tlast,tnew,outdir=r".",fname_prefix=r"dht11-"):
     return fnout      
 
 
-def main2():
-    outdir=r"pipylog_dht11"
+def main():
+    outdir=r"pipylog_"+os.path.splitext(__file__)[0]
     if not os.path.exists(outdir):os.mkdir(outdir)
     updateintervalsec,running_time_hour=30,24
     t_new_loop,num_error=0,0
     mylcd=init_mylcd()
     mylcd.lcd_backlighton(0)
-    for loop_counter in xrange(running_time_hour*60*60/updateintervalsec):
+    dht_running=True
+    loop_counter=0
+    while (dht_running):
+    # for loop_counter in xrange(running_time_hour*60*60/updateintervalsec):
         t_last_loop=t_new_loop
         t_new_loop=time.time()
         try:
             mytemp,myhmd=update(mylcd)
+        except KeyboardInterrupt:
+            dht_running=False
         except Exception,e:
             num_error+=1
             time.sleep(0.5)
             continue
-        if (-1<= mytemp <=50) and (-1<=myhmd<=100):
-            fnout=get_log_file_name(t_last_loop,t_new_loop,outdir)
-            with open(fnout,'a') as fhout:
-                fhout.write("%.2f , %s , %3d , %3d\n"%(t_new_loop,\
+        try:
+            if (-1<= mytemp <=50) and (-1<=myhmd<=100):
+                fnout=get_log_file_name(t_last_loop,t_new_loop,outdir)
+                with open(fnout,'a') as fhout:
+                    fhout.write("%.2f , %s , %3d , %3d\n"%(t_new_loop,\
                             strftime("%H%M%S",time.localtime(t_new_loop)), mytemp,myhmd))
-        t_end_loop=time.time()
-        twait=updateintervalsec-(t_end_loop-t_new_loop)
-        mylcd.lcd_display_string(("%5d/%d    %7.3f"%(loop_counter+1,num_error,twait)).center(20), 3)
-        if twait>0:time.sleep(twait)
+                t_end_loop=time.time()
+                twait=updateintervalsec-(t_end_loop-t_new_loop)
+                mylcd.lcd_display_string(("%5d/%d    %7.3f"%(loop_counter+1,num_error,twait)).center(20), 3)
+                if twait>0:time.sleep(twait)
+                loop_counter+=1
+        except KeyboardInterrupt:
+            dht_running=False
+        except Exception,e:
+            # dht_running=False
+            time.sleep(0.1)
+            continue
+
+    print "    Log file as %s"%fnout
         
-if __name__=="__main__": main2()
+if __name__=="__main__": main()
