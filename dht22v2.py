@@ -11,6 +11,9 @@ import os
 import signal
 import RPi.GPIO as GPIO
 import psutil
+import urllib2
+import json
+import socket
 
 class i2c_device:
     def __init__(self, addr, port=1):
@@ -434,13 +437,14 @@ def backlight_control(fname="backlighton.txt"):
         return 0
 
 
-def get_log_file_name(tlast, tnew, outdir=r".", fname_prefix=r"dht11-"):
+def get_log_file_name(tlast, tnew, outdir=r".", fname_prefix=r"dht22-"):
     t_lastdate_num = int(time.strftime("%Y%m%d", time.localtime(tlast)))
     t_newdate_num = int(time.strftime("%Y%m%d", time.localtime(tnew)))
     # if not os.path.exists(outdir): os.mkdir(outdir)
     fnout = os.path.join(os.getcwdu(), outdir, fname_prefix + time.strftime("%y-%m-%d") + ".txt")
     # print fnout, t_newdate_num,t_lastdate_num
     if (t_newdate_num > t_lastdate_num) and not (os.path.exists(fnout)): open(fnout, 'w').close()
+    os.system("""sudo chown pi %s"""%fnout)
     return fnout
 
 
@@ -450,11 +454,26 @@ def update_lcd(mylcd, t, h):
     mylcd.lcd_display_string(("%.1fF %.1fC %.1f%%" % (t * 9 / 5.0 + 32, t, h)).center(20), 4)
 
 
+def get_weather_api():
+    minneapolis_url = r'http://api.openweathermap.org/data/2.5/weather?id=5037649&units=metric'
+    try:
+        response = urllib2.urlopen(minneapolis_url,timeout=5)
+    except urllib2.URLError, e:
+        print "urlopen error at %s, %s"%(time.strftime("%m-%d %H:%M:%S"),e)
+        return ""
+    except socket.timeout,e:
+        print "urlopen error at %s, %s"%(time.strftime("%m-%d %H:%M:%S"),e)
+        return ""
+    data = json.load(response)
+    outstr=" %s %.1fC%.0f" % (time.strftime("%H:%M", time.localtime(data['sys']['sunset'])), data['main']['temp'], data['main']['humidity'])
+    return  outstr
+
+    
 def main1():
     # Some init values
     outdir = r"pipylog_" + os.path.splitext(__file__)[0]
     if not os.path.exists(outdir): os.mkdir(outdir)
-    updateIntervalSec, runningTimeHour = 30, 24
+    updateIntervalSec, runningTimeHour = 60, 24
     retryInvervalSec = 3
     totalLoopNum, errorLoopNum = 0, 0
     main_t0 = time.time()
@@ -504,7 +523,9 @@ def main1():
             with open(fnout, 'a') as fhout:
                 fhout.write(
                     "%.2f , %s , %4.1f , %4.1f\n" % (loop_t0, time.strftime("%H%M%S", time.localtime(loop_t0)), t, h))
-            mylcd.lcd_display_string(("%5d/%d    %7.1f" % (totalLoopNum, errorLoopNum, twaitsec)).center(20), 3)
+            # mylcd.lcd_display_string(("%5d/%d    %7.3f" % (totalLoopNum, errorLoopNum, twaitsec)).center(20), 3)
+            weather_str= get_weather_api()
+            mylcd.lcd_display_string(("%d/%d%s" % (totalLoopNum, errorLoopNum, weather_str)).center(20), 3)
             if twaitsec > 0: time.sleep(twaitsec)
         except KeyboardInterrupt:
             dht_running = False
@@ -539,4 +560,5 @@ if __name__ == "__main__":
     # orignal_sample()
     start_daemon()
     main1()
+    #print get_weather_api()
     
