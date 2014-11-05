@@ -465,7 +465,7 @@ def get_weather_api():
         print "urlopen error at %s, %s"%(time.strftime("%m-%d %H:%M:%S"),e)
         return ""
     data = json.load(response)
-    outstr=" %s %.1fC%.0f" % (time.strftime("%H:%M", time.localtime(data['sys']['sunset'])), data['main']['temp'], data['main']['humidity'])
+    outstr=" %s %.0fC %.0f%%" % (time.strftime("%H:%M", time.localtime(data['sys']['sunset'])), data['main']['temp'], data['main']['humidity'])
     return  outstr
 
     
