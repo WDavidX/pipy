@@ -14,6 +14,8 @@ import psutil
 import urllib2
 import json
 import socket
+import math
+import datetime
 
 class i2c_device:
     def __init__(self, addr, port=1):
@@ -431,10 +433,10 @@ def init_mylcd():
 
 
 def backlight_control(fname="backlighton.txt"):
-    if os.path.exists(fname):
-        return 1
-    else:
-        return 0
+    t=datetime.datetime.now()
+    if t.hour>=22 or t.hour<=6: return 0
+    if os.path.exists(fname):   return 1
+    else:                       return 0
 
 
 def get_log_file_name(tlast, tnew, outdir=r".", fname_prefix=r"dht22-"):
@@ -467,7 +469,10 @@ def get_weather_api():
         return None
     return  data
 
+wunderground_counter=0
+
 def get_wunderground():
+    global wunderground_counter
     myapi="8e1199ad75005651"
     features="conditions"
     settings="lang:EN"
@@ -475,13 +480,16 @@ def get_wunderground():
     format="json"
     minneapolis_url="""http://api.wunderground.com/api/%s/%s/%s/q/%s.%s"""%(myapi,features,settings,query,format)
     try:
+        wunderground_counter=wunderground_counter+1
+        print "Calling wunderground %5d at %s"%(wunderground_counter, time.strftime("%m-%d %H:%M:%S"))
         response = urllib2.urlopen(minneapolis_url,timeout=5)
         data = json.load(response)
     except Exception,e:
         print "get_wunderground error %s"%e
         return None
+    #print data['current_observation']['feelslike_c']
     return data
-    
+
 def main1():
     # Some init values
     outdir = r"pipylog_" + os.path.splitext(__file__)[0]
@@ -519,11 +527,12 @@ def main1():
     wunderground_data,weather_data=None,None
     while (dht_running):
         loop_t_last = loop_t0
-        loop_t0 = time.time()    
+        loop_t0 = time.time()
 
         try:
             s.trigger()
             totalLoopNum += 1
+            print totalLoopNum,errorLoopNum
             t, h, badtrigger, badsm = s.sensor_info()
             # print totalLoopNum,t,h,badtrigger, badsm
 
@@ -539,21 +548,23 @@ def main1():
                 fhout.write(
                     "%.2f , %s , %4.1f , %4.1f\n" % (\
                     loop_t0, time.strftime("%H%M%S", time.localtime(loop_t0)), t, h))
-            
 
-            if n_15min<int(loop_t0 / (60*15.0)):
-                n_15min=int(loop_t0 / (60*15.0))
+
+            if n_15min<math.floor(loop_t0 / (60*15.0)):
+                n_15min=math.floor(loop_t0 / (60*15.0))
                 wunderground_data=get_wunderground()
-                
+
             if n_5min<int(loop_t0 / (60*5.0)):
                 n_5min=int(loop_t0 / (60*5.0))
-                weather_data=get_weather_api()    
-            
+                weather_data=get_weather_api()
+
             # display section
             if weather_data is not None:
-                str1 = time.strftime("%H:%M %m-%d%a ")+time.strftime("%H:%M", time.localtime(weather_data['sys']['sunset']))
+                str1 = time.strftime("%H:%M %m-%d %a ",time.localtime(time.time()+60))+\
+                    time.strftime("%H%M", time.localtime(weather_data['sys']['sunset']))
                 mylcd.lcd_display_string(str1.center(20), 1)
                 str2 = "Emma Be Happy  %d" % (totalLoopNum)
+                print str2
                 mylcd.lcd_display_string(str2.center(20), 2)
                 if wunderground_data is None:
                     str3 = "%s %.0fC %.0f%%"%(weather_data['weather'][0]['main'],\
@@ -564,16 +575,17 @@ def main1():
                         weather_data['weather'][0]['main'],\
                         float(wunderground_data['current_observation']['temp_c']),\
                         wunderground_data['current_observation']['relative_humidity'])
-                mylcd.lcd_display_string(str3.center(20), 3)                
-                mylcd.lcd_display_string(("%.1fF %.1fC %.1f%%" % (t * 9 / 5.0 + 32, t, h)).center(20), 4)            
+                mylcd.lcd_display_string(str3.center(20), 3)
+                mylcd.lcd_display_string(("%.1fF %.1fC %.1f%%" % (t * 9 / 5.0 + 32, t, h)).center(20), 4)
             else:
                 str1 = time.strftime("%H:%M %m-%d%a ")
                 mylcd.lcd_display_string(str1.center(20), 1)
-                str2 = "Emma Be Happy  %d" % (totalLoopNum)
-                mylcd.lcd_display_string(str2.center(20), 2)              
+                str2 = "Emma Be Happy  -%d" % (totalLoopNum)
+                print str2
+                mylcd.lcd_display_string(str2.center(20), 2)
                 mylcd.lcd_display_string(("%.1fF %.1fC %.1f%%" % (t * 9 / 5.0 + 32, t, h)).center(20), 4)
-                
-            twaitsec = max(0, loop_t0 + updateIntervalSec - time.time())            
+
+            twaitsec = max(0, loop_t0 + updateIntervalSec - time.time())
             if twaitsec > 0: time.sleep(twaitsec)
         except KeyboardInterrupt:
             dht_running = False
@@ -582,7 +594,7 @@ def main1():
             print "%s"%e
             time.sleep(1)
             continue
-        
+
     print "\n" * 2
     print "%s terminated" % (os.path.abspath(__file__))
     print "Up time: %.1f sec,  %d loops from %s " % (
@@ -603,12 +615,15 @@ def start_daemon():
             line=item.strip()
             break
     if pigpiod_found: print line
-    else: os.system("sudo pigpiod")
-     
+    else:
+        os.system("sudo pigpiod")
+        print "\nstarting pigpiod..."
+        time.sleep(3)
+
 if __name__ == "__main__":
     pass
     # orignal_sample()
     start_daemon()
     main1()
     #print get_weather_api()
-    
+
