@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-
+ 
 # 2014-07-11 DHT22.py
 
 import time
@@ -11,11 +11,11 @@ import os
 import signal
 import RPi.GPIO as GPIO
 import psutil
-import urllib2
 import json
 import socket
 import math
 import datetime
+import urllib2
 
 class i2c_device:
     def __init__(self, addr, port=1):
@@ -434,7 +434,7 @@ def init_mylcd():
 
 def backlight_control(fname="backlighton.txt"):
     t=datetime.datetime.now()
-    if t.hour>=22 or t.hour<=6: return 0
+    # if t.hour>=22 or t.hour<=6: return 0
     if os.path.exists(fname):   return 1
     else:                       return 0
 
@@ -485,11 +485,21 @@ def get_wunderground():
         response = urllib2.urlopen(minneapolis_url,timeout=5)
         data = json.load(response)
     except Exception,e:
-        print "get_wunderground error %s"%e
+        print "get_wunderground error    %s"%e
         return None
     #print data['current_observation']['feelslike_c']
     return data
 
+def get_sunset_time_str(date_info=None,latitude=44.97,longitude=-93.26,tz_info='US/Central'):
+    import pytz,datetime,astral
+    a=astral.Astral()
+    a.solar_depression='civil'
+    if date_info is None: date_info=datetime.date.today()
+    utc_datetime=a.sunset_utc(date_info,latitude,longitude)
+    lc_datetime=utc_datetime.astimezone(pytz.timezone(tz_info))
+    outstr="%02d%02d"%(lc_datetime.hour,lc_datetime.minute)
+    return outstr    
+    
 def main1():
     # Some init values
     outdir = r"pipylog_" + os.path.splitext(__file__)[0]
@@ -550,43 +560,35 @@ def main1():
                     loop_t0, time.strftime("%H%M%S", time.localtime(loop_t0)), t, h))
 
 
+
+            
+            # first row
+            str1 = time.strftime("%H:%M %m-%d %a ",time.localtime(time.time()+60))+get_sunset_time_str()              
+            mylcd.lcd_display_string(str1.center(20), 1)
+            
+            # second row
+            str2 = "Emma Be Happy  %d" % (totalLoopNum)
+            print str2
+            mylcd.lcd_display_string(str2.center(20), 2)
+
+            # third row from internet
             if n_15min<math.floor(loop_t0 / (60*15.0)):
                 n_15min=math.floor(loop_t0 / (60*15.0))
-                wunderground_data=get_wunderground()
-
-            if n_5min<int(loop_t0 / (60*5.0)):
-                n_5min=int(loop_t0 / (60*5.0))
-                weather_data=get_weather_api()
-
-            # display section
-            if weather_data is not None:
-                str1 = time.strftime("%H:%M %m-%d %a ",time.localtime(time.time()+60))+\
-                    time.strftime("%H%M", time.localtime(weather_data['sys']['sunset']))
-                mylcd.lcd_display_string(str1.center(20), 1)
-                str2 = "Emma Be Happy  %d" % (totalLoopNum)
-                print str2
-                mylcd.lcd_display_string(str2.center(20), 2)
-                if wunderground_data is None:
-                    str3 = "%s %.0fC %.0f%%"%(weather_data['weather'][0]['main'],\
-                        weather_data['main']['temp'], weather_data['main']['humidity'])
-                else:
-                    str3 = "%.0fC %s %.0fC %s"%(\
+                wunderground_data=get_wunderground()            
+                if wunderground_data is not None:
+                    str3 = "%.0f/%.0fC %s %s"%(\
                         float(wunderground_data['current_observation']['feelslike_c']),\
-                        weather_data['weather'][0]['main'],\
                         float(wunderground_data['current_observation']['temp_c']),\
+                        wunderground_data['current_observation']['weather'].split(" ")[-1],\
                         wunderground_data['current_observation']['relative_humidity'])
-                mylcd.lcd_display_string(str3.center(20), 3)
-                mylcd.lcd_display_string(("%.1fF %.1fC %.1f%%" % (t * 9 / 5.0 + 32, t, h)).center(20), 4)
-            else:
-                str1 = time.strftime("%H:%M %m-%d%a ")
-                mylcd.lcd_display_string(str1.center(20), 1)
-                str2 = "Emma Be Happy  -%d" % (totalLoopNum)
-                print str2
-                mylcd.lcd_display_string(str2.center(20), 2)
-                mylcd.lcd_display_string(("%.1fF %.1fC %.1f%%" % (t * 9 / 5.0 + 32, t, h)).center(20), 4)
-
+                    mylcd.lcd_display_string(str3.center(20), 3)
+            
+            # fourth row
+            mylcd.lcd_display_string(("%.1fF %.1fC %.1f%%" % (t * 9 / 5.0 + 32, t, h)).center(20), 4)
+            
             twaitsec = max(0, loop_t0 + updateIntervalSec - time.time())
             if twaitsec > 0: time.sleep(twaitsec)
+            
         except KeyboardInterrupt:
             dht_running = False
         except Exception, e:

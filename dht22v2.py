@@ -429,13 +429,11 @@ def init_mylcd():
     mylcd.lcd_display_string("DHT22 Version 1.0".center(20), 3)
     return mylcd
 
-
 def backlight_control(fname="backlighton.txt"):
-    if os.path.exists(fname):
-        return 1
-    else:
-        return 0
-
+    mylocaltime=time.localtime()
+    if (mylocaltime.tm_hour>=11) or (mylocaltime.tm_hour<=8): return 1
+    if os.path.exists(fname):  return 1
+    else:  return 0
 
 def get_log_file_name(tlast, tnew, outdir=r".", fname_prefix=r"dht22-"):
     t_lastdate_num = int(time.strftime("%Y%m%d", time.localtime(tlast)))
@@ -458,15 +456,14 @@ def get_weather_api():
     minneapolis_url = r'http://api.openweathermap.org/data/2.5/weather?id=5037649&units=metric'
     try:
         response = urllib2.urlopen(minneapolis_url,timeout=5)
+        data = json.load(response)
     except urllib2.URLError, e:
         print "urlopen error at %s, %s"%(time.strftime("%m-%d %H:%M:%S"),e)
-        return ""
+        return None
     except socket.timeout,e:
         print "urlopen error at %s, %s"%(time.strftime("%m-%d %H:%M:%S"),e)
-        return ""
-    data = json.load(response)
-    outstr=" %s %.0fC %.0f%%" % (time.strftime("%H:%M", time.localtime(data['sys']['sunset'])), data['main']['temp'], data['main']['humidity'])
-    return  outstr
+        return None
+    return  data
 
     
 def main1():
@@ -500,7 +497,7 @@ def main1():
             time.sleep(loop_t0 + retryInvervalSec - time.time())
     print "Init sensor %d loops in in %.1f seconds" % (init_loop, time.time() + init_t0)
     print "Output directory %s" % (os.path.abspath(outdir))
-
+    loop_t0=0
     while (dht_running):
         try:
             loop_t_last = loop_t0
@@ -516,23 +513,41 @@ def main1():
                 if t_badtrigger_waitsec > 0: time.sleep(t_badtrigger_waitsec)
                 continue
 
-            twaitsec = max(0, loop_t0 + updateIntervalSec - time.time())
             mylcd.lcd_backlighton(backlight_control())
-            update_lcd(mylcd, t, h)
             fnout = get_log_file_name(loop_t_last, loop_t0, outdir)
             with open(fnout, 'a') as fhout:
                 fhout.write(
-                    "%.2f , %s , %4.1f , %4.1f\n" % (loop_t0, time.strftime("%H%M%S", time.localtime(loop_t0)), t, h))
-            # mylcd.lcd_display_string(("%5d/%d    %7.3f" % (totalLoopNum, errorLoopNum, twaitsec)).center(20), 3)
-            weather_str= get_weather_api()
-            mylcd.lcd_display_string(("%d/%d%s" % (totalLoopNum, errorLoopNum, weather_str)).center(20), 3)
+                    "%.2f , %s , %4.1f , %4.1f\n" % (\
+                    loop_t0, time.strftime("%H%M%S", time.localtime(loop_t0)), t, h))
+            weather_data= get_weather_api()
+            
+            # display section
+            if weather_data is not None:
+                str1 = time.strftime("%H:%M %m-%d%a ")+time.strftime("%H:%M", time.localtime(weather_data['sys']['sunset']))
+                mylcd.lcd_display_string(str1.center(20), 1)
+                str2 = "Emma Be Happy  %d" % (totalLoopNum)
+                mylcd.lcd_display_string(str2.center(20), 2)
+                str3 = "%s %.0fC %.0f%%"%(weather_data['weather'][0]['main'],\
+                    weather_data['main']['temp'], weather_data['main']['humidity'])
+                mylcd.lcd_display_string(str3.center(20), 3)                
+                mylcd.lcd_display_string(("%.1fF %.1fC %.1f%%" % (t * 9 / 5.0 + 32, t, h)).center(20), 4)            
+            else:
+                str1 = time.strftime("%H:%M %m-%d%a ")
+                mylcd.lcd_display_string(str1.center(20), 1)
+                str2 = "Emma Be Happy  %d" % (totalLoopNum)
+                mylcd.lcd_display_string(str2.center(20), 2)              
+                mylcd.lcd_display_string(("%.1fF %.1fC %.1f%%" % (t * 9 / 5.0 + 32, t, h)).center(20), 4)
+                
+            twaitsec = max(0, loop_t0 + updateIntervalSec - time.time())            
             if twaitsec > 0: time.sleep(twaitsec)
         except KeyboardInterrupt:
             dht_running = False
         except Exception, e:
             # dht_running=False
-            time.sleep(0.1)
+            print "%s"%e
+            time.sleep(1)
             continue
+        
     print "\n" * 2
     print "%s terminated" % (os.path.abspath(__file__))
     print "Up time: %.1f sec,  %d loops from %s " % (
