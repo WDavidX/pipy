@@ -434,7 +434,7 @@ def init_mylcd():
 
 def backlight_control(fname="backlighton.txt"):
     t=datetime.datetime.now()
-    # if t.hour>=22 or t.hour<=6: return 0
+    if t.hour>22 or t.hour<8: return 1
     if os.path.exists(fname):   return 1
     else:                       return 0
 
@@ -511,7 +511,10 @@ def main1():
 
     # init instances
     pi = pigpio.pi()
-    s = sensor(pi, 4, LED=None, power=None)
+    try:
+        s = sensor(pi, 18, LED=None, power=None)
+    except Exception, e:
+        print "%s"%(e)
     mylcd = init_mylcd()
     mylcd.lcd_backlighton(backlight_control())
     dht_running = True
